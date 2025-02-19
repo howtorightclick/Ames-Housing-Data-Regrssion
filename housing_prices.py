@@ -2,81 +2,58 @@
 Regression on housing data using random forest
 """
 
-import re
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import OneHotEncoder
-from sklearn.compose import make_column_transformer
+from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def read_csv_from_file():
+def read_train_data_csv():
     """
-    Read CSV into dataframe and clean data
+    Read train data into dataframe
     """
-    df_ames_data = pd.read_csv("AmesHousing.csv", sep=",")
+    #df_ames_data = pd.read_csv("AmesHousing.csv", sep=",")
     df_train_data = pd.read_csv("train.csv", sep=",")
 
     # Drop redundant columns and rename columns to match train.csv
-    for (col_name, _) in df_ames_data.items():
-        new_name = re.sub(r'[^a-zA-Z0-9]', '', col_name)
-        #new_name: str = col_name.replace(" ", "")
-        df_ames_data.rename(columns={col_name: new_name}, inplace=True)
+    #for (col_name, _) in df_ames_data.items():
+    #    new_name = re.sub(r'[^a-zA-Z0-9]', '', col_name)
+    #    #new_name: str = col_name.replace(" ", "")
+    #    df_ames_data.rename(columns={col_name: new_name}, inplace=True)
 
-    df_ames_data.drop(columns=['PID'], inplace=True)
-    df_ames_data.rename(columns={"Order": "Id"}, inplace=True)
+    #df_ames_data.drop(columns=['PID'], inplace=True)
+    #df_ames_data.rename(columns={"Order": "Id"}, inplace=True)
 
     # Join training data sets
-    combined_training_data = pd.concat([df_ames_data, df_train_data])
+    #combined_training_data = pd.concat([df_ames_data, df_train_data])
 
-    # Drop rows with NaN
-    #combined_training_data = combined_training_data.select_dtypes(include=[np.number])
-    #print(combined_training_data.info())
-    # Encode non numeric data
+    return df_train_data
 
-    one_hot_encoder = OneHotEncoder(handle_unknown='ignore', categories='auto')
-    categorical_columns = combined_training_data.select_dtypes(include='object')
-    
-    feature_arr = one_hot_encoder.fit_transform(categorical_columns).toarray()
-    feature_labels = one_hot_encoder.get_feature_names_out()
-    feature_labels = np.array(feature_labels).ravel()
-    features = pd.DataFrame(feature_arr, columns=feature_labels)
-    
-    #print(features.info())
-    # Add one-hot encoded columns to numerical features
-    #new_X_train = pd.concat([numeric_X_train, OH_cols_train], axis=1)
-    #new_X_valid = pd.concat([numeric_X_valid, OH_cols_valid], axis=1)
-    #print(new_X_train)
+def read_test_data_csv():
+    """
+    Reads the test data into dataframe
+    """
+    df_test = pd.read_csv("test.csv", sep=",")
+    df_test['SalePrice'] = 0
+    return df_test
 
-    #df_encoded = combined_training_data.apply(one_hot_encoder.fit_transform)
-
-    #combined_training_data = combined_training_data.dropna()
-
-    #print(combined_training_data.info())
-
-    return None
-
-def fit_linear_regression(df: pd.DataFrame):
+def fit_model(training_df: pd.DataFrame, test_df: pd.DataFrame):
     """
     Fits multilinear regression model
     """
-    df_test = pd.read_csv("test.csv", sep=",")
-    df_test = df_test.select_dtypes(include=[np.number])
 
-    x_train = df.drop(columns=["SalePrice"])
-    y_train = df["SalePrice"]
-    x_train, x_test = x_train.align(df_test, join='inner', axis=1)
-
-    print(f"X_train shape: {x_train.shape}")
-    print(f"y_train shape: {y_train.shape}")
-    print(f"X_test shape: {x_test.shape}")
+    x_train = training_df.drop(columns=["remainder__SalePrice"])
+    y_train = training_df["remainder__SalePrice"]
+    x_train, x_test = x_train.align(test_df, join='inner', axis=1)
 
     x_train_split, x_val, y_train_split, y_val = train_test_split(x_train, y_train, test_size=0.2, random_state=42)
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(x_train_split, y_train_split)
+
     y_val_pred = model.predict(x_val)
 
     # Calculate performance metrics
@@ -87,6 +64,8 @@ def fit_linear_regression(df: pd.DataFrame):
     print("Mean Absolute Error (MAE):", mae)
     print("Root Mean Squared Error (RMSE):", rmse)
     print("R² Score:", r2)
+
+    return model
 
 def plot_graph(df):
     """
@@ -108,12 +87,27 @@ def main():
     Execute
     """
     print("Executing main")
-    training_df = read_csv_from_file()
-    #fit_linear_regression(training_df)
+    training_df = read_train_data_csv()
+    test_df = read_test_data_csv()
 
+    column_transformer = ColumnTransformer(transformers=[
+        ("ohe", OneHotEncoder(handle_unknown="ignore"), 
+        list(training_df.select_dtypes(include="object").columns))
+    ], remainder="passthrough")
+    training_df = column_transformer.fit_transform(training_df)
+    training_df = pd.DataFrame(training_df.toarray(), columns=column_transformer.get_feature_names_out())
 
-    #predicted_price = regr.predict([[3, 2, 3]])
-    #print(predicted_price)
+    test_df = column_transformer.transform(test_df)
+    test_df = pd.DataFrame(test_df.toarray(), columns=column_transformer.get_feature_names_out())
+
+    model = fit_model(training_df, test_df)
+    test_df.drop('remainder__SalePrice', axis=1, inplace=True)
+    preds = model.predict(test_df)
+
+    sample_submission_df = pd.read_csv('./sample_submission.csv')
+    sample_submission_df['SalePrice'] = preds
+    sample_submission_df.to_csv('./submission.csv', index=False)
+    sample_submission_df.head()
 
 if __name__ == "__main__":
     main()
